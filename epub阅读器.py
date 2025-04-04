@@ -1,6 +1,6 @@
 import os
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import ttk, filedialog, messagebox, scrolledtext, font
 from ttkbootstrap import Style
 from ebooklib import epub
 from bs4 import BeautifulSoup
@@ -13,9 +13,9 @@ warnings.filterwarnings("ignore")
 class ModernEPubReader:
     def __init__(self, root):
         self.root = root
-        self.style = Style(theme='litera')  # 可选主题：cosmo, litera, minty等
+        self.style = Style(theme='litera')
         self.root.title("Modern EPUB Reader")
-        self.root.geometry("2800x1600")
+        self.root.geometry("3000x2000")
         
         # 初始化变量
         self.book = None
@@ -25,8 +25,26 @@ class ModernEPubReader:
         self.bookmarks = {}
         self.search_results = []
         
+        # 显示设置
+        self.settings = {
+            'font_family': 'Microsoft YaHei',
+            'font_size': 24,
+            'line_spacing': 2,
+            'paragraph_spacing': 10,
+            'indent': 2,  # 首行缩进字符数
+            'theme': 'litera'
+        }
+        
         # 创建UI
         self.create_widgets()
+        
+        # Windows系统启用DPI感知
+        if os.name == 'nt':
+            try:
+                from ctypes import windll
+                windll.shcore.SetProcessDpiAwareness(1)
+            except:
+                pass
         
     def create_widgets(self):
         """创建界面组件"""
@@ -55,9 +73,11 @@ class ModernEPubReader:
         self.text_area = scrolledtext.ScrolledText(
             content_frame,
             wrap=tk.WORD,
-            font=('Microsoft YaHei', 30),
-            padx=10,
-            pady=10
+            font=(self.settings['font_family'], self.settings['font_size']),
+            padx=15,
+            pady=15,
+            spacing1=self.settings['paragraph_spacing'],  # 段前间距
+            spacing3=self.settings['line_spacing']*10     # 行间距
         )
         self.text_area.pack(fill=tk.BOTH, expand=True)
         self.text_area.config(state=tk.DISABLED)
@@ -81,14 +101,21 @@ class ModernEPubReader:
         
         # 设置默认值
         self.hide_search()
-          # 应用字体抗锯齿设置（仅Windows）
-        if os.name == 'nt':
-            try:
-                from ctypes import windll
-                windll.shcore.SetProcessDpiAwareness(1)
-            except:
-                pass
+    
+    def apply_text_formatting(self, text):
+        """应用文本格式化（首行缩进）"""
+        lines = text.split('\n')
+        formatted_lines = []
+        indent_space = ' ' * self.settings['indent'] * 2  # 2个空格相当于1个汉字宽度
         
+        for line in lines:
+            if line.strip():  # 非空行才添加缩进
+                formatted_lines.append(indent_space + line)
+            else:
+                formatted_lines.append(line)
+        
+        return '\n'.join(formatted_lines)
+    
     def open_file(self):
         """打开EPUB文件"""
         file_path = filedialog.askopenfilename(
@@ -142,7 +169,8 @@ class ModernEPubReader:
             
         # 计算分页
         chapter_text = self.chapters[self.current_chapter]
-        lines = chapter_text.split('\n')
+        formatted_text = self.apply_text_formatting(chapter_text)
+        lines = formatted_text.split('\n')
         lines_per_page = 50  # 每页行数
         
         total_pages = (len(lines) // lines_per_page) + 1
@@ -216,7 +244,7 @@ class ModernEPubReader:
         listbox = tk.Listbox(
             toc_window,
             yscrollcommand=scrollbar.set,
-            font=('Microsoft YaHei', 11)
+            font=(self.settings['font_family'], self.settings['font_size'])
         )
         
         for i, chapter in enumerate(self.chapters):
@@ -243,7 +271,7 @@ class ModernEPubReader:
         bm_window.geometry("400x300")
         
         # 书签列表
-        listbox = tk.Listbox(bm_window, font=('Microsoft YaHei', 11))
+        listbox = tk.Listbox(bm_window, font=(self.settings['font_family'], self.settings['font_size']))
         listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         for name in self.bookmarks:
@@ -356,6 +384,8 @@ class ModernEPubReader:
         tree = ttk.Treeview(result_window, columns=('preview'), show='headings')
         tree.heading('#0', text='位置')
         tree.heading('preview', text='内容预览')
+        tree.column('#0', width=100)
+        tree.column('preview', width=480)
         
         for i, (chap_idx, pos, preview) in enumerate(self.search_results):
             tree.insert('', tk.END, text=f"第{chap_idx+1}章", values=(f"...{preview}...",))
@@ -383,33 +413,136 @@ class ModernEPubReader:
         """显示设置对话框"""
         dialog = tk.Toplevel(self.root)
         dialog.title("设置")
-        dialog.geometry("400x300")
+        dialog.geometry("500x450")
         
         # 字体设置
-        ttk.Label(dialog, text="字体大小:").pack(pady=5)
-        font_size = ttk.Combobox(dialog, values=[10, 12, 14, 16, 18, 20])
-        font_size.pack(pady=5)
-        font_size.set(12)
+        ttk.Label(dialog, text="字体设置:").pack(pady=5)
+        
+        font_frame = ttk.Frame(dialog)
+        font_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(font_frame, text="字体:").pack(side=tk.LEFT)
+        self.font_var = tk.StringVar(value=self.settings['font_family'])
+        font_menu = ttk.Combobox(
+            font_frame, 
+            textvariable=self.font_var,
+            values=self.get_available_fonts(),
+            state="readonly"
+        )
+        font_menu.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(font_frame, text="大小:").pack(side=tk.LEFT, padx=5)
+        self.size_var = tk.IntVar(value=self.settings['font_size'])
+        size_menu = ttk.Combobox(
+            font_frame,
+            textvariable=self.size_var,
+            values=list(range(10, 49)),  # 10-48
+            width=5,
+            state="readonly"
+        )
+        size_menu.pack(side=tk.LEFT)
+        
+        # 段落设置
+        ttk.Label(dialog, text="段落设置:").pack(pady=5)
+        
+        # 首行缩进
+        indent_frame = ttk.Frame(dialog)
+        indent_frame.pack(fill=tk.X, padx=10, pady=5)
+        ttk.Label(indent_frame, text="首行缩进(字符):").pack(side=tk.LEFT)
+        self.indent_var = tk.IntVar(value=self.settings['indent'])
+        indent_spin = ttk.Spinbox(
+            indent_frame,
+            from_=0,
+            to=10,
+            textvariable=self.indent_var,
+            width=5
+        )
+        indent_spin.pack(side=tk.LEFT, padx=5)
+        
+        # 行间距
+        ttk.Label(dialog, text="行间距:").pack(pady=5)
+        self.spacing_var = tk.DoubleVar(value=self.settings['line_spacing'])
+        spacing_scale = ttk.Scale(
+            dialog,
+            from_=1.0,
+            to=2.0,
+            variable=self.spacing_var,
+            command=lambda e: self.spacing_var.set(round(float(e), 1))
+        )
+        spacing_scale.pack(fill=tk.X, padx=20, pady=5)
+        
+        # 段间距
+        ttk.Label(dialog, text="段间距:").pack(pady=5)
+        self.para_spacing_var = tk.IntVar(value=self.settings['paragraph_spacing'])
+        para_spacing_scale = ttk.Scale(
+            dialog,
+            from_=0,
+            to=30,
+            variable=self.para_spacing_var,
+            command=lambda e: self.para_spacing_var.set(int(float(e)))
+        )
+        para_spacing_scale.pack(fill=tk.X, padx=20, pady=5)
         
         # 主题设置
         ttk.Label(dialog, text="界面主题:").pack(pady=5)
-        theme = ttk.Combobox(dialog, values=['litera', 'cosmo', 'minty', 'darkly'])
-        theme.pack(pady=5)
-        theme.set('litera')
+        self.theme_var = tk.StringVar(value=self.settings['theme'])
+        theme_menu = ttk.Combobox(
+            dialog,
+            textvariable=self.theme_var,
+            values=['litera', 'cosmo', 'minty', 'darkly', 'sandstone'],
+            state="readonly"
+        )
+        theme_menu.pack(pady=5)
         
+        # 应用按钮
         def apply_settings():
-            new_size = int(font_size.get())
-            new_theme = theme.get()
+            self.settings['font_family'] = self.font_var.get()
+            self.settings['font_size'] = self.size_var.get()
+            self.settings['line_spacing'] = self.spacing_var.get()
+            self.settings['paragraph_spacing'] = self.para_spacing_var.get()
+            self.settings['indent'] = self.indent_var.get()
+            self.settings['theme'] = self.theme_var.get()
             
-            self.text_area.config(font=('Microsoft YaHei', new_size))
-            self.style.theme_use(new_theme)
+            # 更新文本区域样式
+            self.text_area.config(
+                font=(self.settings['font_family'], self.settings['font_size']),
+                spacing1=self.settings['paragraph_spacing'],
+                spacing3=self.settings['line_spacing']*10
+            )
+            
+            # 更新主题
+            self.style.theme_use(self.settings['theme'])
             dialog.destroy()
+            self.display_chapter()  # 重新显示当前章节以应用新格式
         
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=10)
         
         ttk.Button(btn_frame, text="应用", command=apply_settings).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="取消", command=dialog.destroy).pack(side=tk.LEFT)
+    
+    def get_available_fonts(self):
+        """获取系统可用字体列表"""
+        fonts = list(font.families())
+        preferred_fonts = [
+            "Microsoft YaHei", 
+            "SimSun", 
+            "Arial", 
+            "Times New Roman",
+            "Courier New",
+            "Verdana",
+            "Tahoma",
+            "Segoe UI"
+        ]
+        
+        # 确保首选字体在前面
+        available_fonts = []
+        for font_name in preferred_fonts:
+            if font_name in fonts:
+                available_fonts.append(font_name)
+                fonts.remove(font_name)
+        
+        return available_fonts + sorted(fonts)
 
 if __name__ == "__main__":
     root = tk.Tk()
